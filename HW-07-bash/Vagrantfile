@@ -1,0 +1,92 @@
+# Describe VMs
+MACHINES = {
+  # VM name
+  :"hw-07-bash" => {
+              # VM box
+              :box_name => "centos/7",
+              # VM CPU count
+              :cpus => 2,
+              # VM RAM size (Mb)
+              :memory => 2048,
+              # networks
+              :net => [
+                {
+                  :ip => "192.168.56.10"
+                }
+              ],
+              # forwarded ports
+              :forwarded_port => [],
+              # provision files
+              :provision_files => [
+                { :source => "./files/access.log", :destination => "access.log" }
+              ],
+              # provision scripts
+              :provision_scripts => [
+                { :path => "./scripts/0-whoami.sh" },
+              ],
+            },
+}
+
+# Function to check whether VM was already provisioned
+def provisioned?(vm_name='default', provider='virtualbox')
+  File.exist?(".vagrant/machines/#{vm_name}/#{provider}/action_provision")
+end
+
+Vagrant.configure("2") do |config|
+  MACHINES.each do |boxname, boxconfig|
+    # Disable shared folders if not provisioned
+    config.vm.synced_folder ".", "/vagrant", type: "virtualbox", disabled: not(provisioned?(boxname))
+
+    # Apply VM config
+    config.vm.define boxname do |box|
+      # Set VM base box and hostname
+      box.vm.box = boxconfig[:box_name]
+      box.vm.host_name = boxname.to_s
+      box.vbguest.auto_update = false
+      box.vbguest.installer_options = { allow_kernel_upgrade: true }
+      # Additional network config if present
+      if boxconfig.key?(:net)
+        boxconfig[:net].each do |ipconf|
+          box.vm.network "private_network", ipconf
+        end
+      end
+      # Port-forward config if present
+      if boxconfig.key?(:forwarded_port)
+        boxconfig[:forwarded_port].each do |port|
+          box.vm.network "forwarded_port", port
+        end
+      end
+      # VM resources config
+      box.vm.provider "virtualbox" do |v|
+        # Set VM RAM size and CPU count
+        v.memory = boxconfig[:memory]
+        v.cpus = boxconfig[:cpus]
+      end
+      # provision files
+      if boxconfig.key?(:provision_files)
+        boxconfig[:provision_files].each do |file|
+          box.vm.provision "file",
+              # source file path on host
+              source: file[:source],
+              # destination file path on VM
+              destination: file[:destination]
+        end
+      end
+      # provision scripts
+      if boxconfig.key?(:provision_scripts)
+        boxconfig[:provision_scripts].each do |script|
+          box.vm.provision "shell",
+              # Path to script
+              path: script[:path],
+              # Script's args
+              args: script[:args],
+              # Set environment variables for script
+              env: {"PROVISIONER" => "vagrant"}
+          ## reload VM
+          # config.vagrant.plugins = ["vagrant-reload"]
+          # box.vm.provision :reload if script[:reload]
+        end
+      end
+    end
+  end
+end
